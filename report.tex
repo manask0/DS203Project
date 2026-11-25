@@ -1,0 +1,116 @@
+\documentclass{article}
+\usepackage{graphicx} % Required for inserting images
+\usepackage{float}
+\usepackage{amsmath}
+\usepackage[margin=1in]{geometry}   
+\title{DS203 Regression Project: Inflation Forecasting}
+\author{Manas Karia \and Ishaan Ganesh \and Dhruva Vijai}
+\date{November 2026}
+
+\begin{document}
+\maketitle
+
+\section*{Project Overview}
+This project forecasts US year over year CPI inflation at horizons of 1, 3, 6 and 12 months using macroeconomic series from the Federal Reserve Economic Data (FRED) repository. We first carry out an exploratory data analysis to identify candidate predictors, redundant features and lead-lag relationships. We then build and compare OLS, Ridge, Lasso and ElasticNet regression models, selecting each horizon's model on a chronological validation set and evaluating it on a test set.
+
+\section{Introduction}
+Inflation is the sustained increase in the general prices of goods and services over time, typically measured by the year-over-year percentage change in the Consumer Price Index (CPI). Sharp or unpredictable spikes in inflation reduce purchasing power and create uncertainty for businesses. Hence, keeping track of inflation is of importance, and being able to predict it would help in taking preemptive measures. \newline
+Changes in inflation are broadly driven by macroeconomic factors operating through demand and supply channels. \newline
+Keeping this in mind, we seek to develop models that help us predict future inflation (over various horizons) with current macroeconomic data.
+
+
+
+\section{Methodology}
+
+\subsection{Exploratory Data Analysis}
+
+\paragraph{Motivation.}
+We proceed with exploratory data analysis to first understand relationships in the underlying data before we proceed with regression modelling so we can identify ideal candidate predictors, redundant data, and cross correlations to build better models with insight as to the structure of the underlying data.
+
+\paragraph{Exploratory Analysis Procedure.}
+We proceeded with the exploratory data analysis in six stages. First, we conducted some basic preprocessing; merging the different datasets while keeping track of the observation date as the index. Then, we created new features as mandated for further analysis while dropping all NaN rows to keep the dataset clean. To inspect the feature datasets, we determined the date ranges, maxima and minima, variable types, missing values, observation frequencies and summary statistics of each feature (mean, median and standard deviation). To analyze the changes in the inflation rate with time, we plot inflation against the observation date to visually inspect the data for any clear patterns. Next, we plotted the distribution, boxplots and a Q-Q prob-plot to better understand the underlying distribution, outliers and proximity to normalcy. We identified periods of high inflation and deflation by employing outlier analysis on the inflation data through the IQR and Z-score statistics. To understand volatility and periods of rapid change, we plotted the monthly change in inflation against the observation date. To find periods of rapid change, a similar outlier analysis was conducted. To analyze the different feature distributions, we defined an analysis function that applied to all the features. The function determined the following: mean, median, standard deviation, variance, skewness, kurtosis, and variable ranges of the features. We then looked at contemporaneous relationships in the data by visualizing the correlation matrix of different features to identify highly correlated/redundant features as well as ideal candidate predictors for regression models. Lead-lag analyses were conducted between different candidate predictors and inflation at varying time delays. Then, correlations were calculated at delays of 1, 3, 6 and 12 months to identify time-dependent behavior. Finally, a correlation graph of the Pearson Correlation metric versus a time delay ranging from 1 month to 10 years was plotted to identify long-term correlations.
+
+\subsection{Data Preprocessing and Experimental Setup}
+
+\paragraph{Data Acquisition and Temporal Alignment.}
+We collect 11 monthly and daily macroeconomic time series from the Federal Reserve Economic Data (FRED) repository spanning 1986--2026: the Consumer Price Index (\texttt{CPIAUCSL}) alongside ten leading and coincident indicators (\texttt{T10Y2Y}, \texttt{UNRATE}, \texttt{INDPRO}, \texttt{FEDFUNDS}, \texttt{PAYEMS}, \texttt{PPIACO}, \texttt{HOUST}, \texttt{DCOILWTICO}, \texttt{M2SL}, and \texttt{UMCSENT}). High-frequency daily series (\texttt{T10Y2Y} and \texttt{DCOILWTICO}) are aggregated into monthly arithmetic means, and all series are aligned onto a continuous Month-Start (\texttt{MS}) calendar index. We trim only the outer leading and trailing edges to the maximal overlapping window across all series.
+
+\paragraph{Stationarity and Multi-Horizon Target Formulation.}
+To avoid bad extrapolation from upward-trending factors, non-stationary level series (\texttt{CPIAUCSL}, \texttt{INDPRO}, \texttt{PAYEMS}, \texttt{PPIACO}, \texttt{DCOILWTICO}, \texttt{M2SL}, and \texttt{HOUST}) are converted into year-over-year (YoY) percentage growth rates, $100 \times (X_t / X_{t-12} - 1)$, while unemployment (\texttt{UNRATE}) is additionally first-differenced ($\Delta U_t = U_t - U_{t-1}$). Combining these with six raw level features (\texttt{T10Y2Y}, \texttt{UNRATE}, \texttt{FEDFUNDS}, \texttt{HOUST}, \texttt{DCOILWTICO}, and \texttt{UMCSENT}) yields $p = 14$ predictors. Under a direct forecasting setup, targets are defined as forward YoY CPI inflation, $y_t^{(h)} = \text{Inflation}_{t+h}$, for horizons $h \in \{1, 3, 6, 12\}$ months. Discarding the initial 12 YoY warm-up months and trailing 12 unobservable target months produces $N = 461$ aligned observations (\texttt{01-1987} to \texttt{08-2025}), ensuring all four horizons are evaluated on an identical historical sample.
+
+\paragraph{Purged Chronological Splitting and Leakage-Free Scaling.}
+We partition the aligned dataset chronologically without shuffling using a $70\% / 15\% / 15\%$ train-validation-test split. Because the longest forecast target ($h = 12$) looks 12 months forward, we purge the final 12 observations from both the training and validation splits so no forward target overlaps across split boundaries. Finally, median imputation and z-score standardization (\texttt{SimpleImputer} and \texttt{StandardScaler}) are fitted strictly on the purged training matrix (\texttt{fit\_transform}) and applied to the validation and test matrices (\texttt{transform}) to prevent distributional leakage, while targets remain unscaled in percentage points for direct MAE and RMSE interpretability.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.8\linewidth]{splist.png}
+    \caption{Split of data with purge gap to prevent leakage}
+    \label{fig:splits}
+\end{figure}
+
+
+\subsection{Feature Construction and Experimental Setup}
+
+\paragraph{Chronological Splitting.}
+The data are split chronologically into training (310 observations,
+01-1987 to 10-2012), validation (57 observations, 11-2013 to 07-2018), and
+test (70 observations, 08-2019 to 08-2025) sets. The 12 month gap at the end of training and validation sets ensures that forward looking targets don't cross the boundary dates. 
+
+\paragraph{Candidate Models and Selection.}
+Candidates are degree 1 or degree 2 polynomial models of type OLS, Ridge,
+Lasso, and ElasticNet, with the regularisation strength $\alpha$ ranging from
+$10^{-4}$ to $1$ and L1 ratios of $0.25$, $0.5$, and $0.75$. For each
+horizon, the candidate with the lowest validation RMSE is selected.
+For each selected model, Mean Absolute Error, Root Mean Square Error, and $R^2$ are calculated.
+
+\paragraph{Feature Contribution Analysis.}
+We study the contribution of each feature by calculating its correlation with each target variable, and by calculating the absolute value of its coefficient when fitted with a least squares model.
+
+\section{Results}
+
+\subsection{Exploratory Data Analysis}
+
+\paragraph{Exploratory Findings.}
+{\sloppy
+After an initial inspection of the dataset, we identified 11 core features, and 6 additional features were created for further analysis, i.e., \texttt{INFLATION}, \texttt{GROWPAY}, \texttt{GROWPROD}, \texttt{GROWIND}, \texttt{UNCHANGE}, and \texttt{GROWOIL}. \texttt{T10Y2Y}, \texttt{DCOILWTICO}, and \texttt{GROWOIL} were identified as unique features with a daily observation frequency and a large absolute number of outliers. On analyzing the inflation rate with time, we identified that inflation tends to follow a relatively normal distribution centered around an average rate of 3.5\%. It has a right-skewed, leptokurtic distribution, implying a more frequent occurrence of outliers. We identified periods of high inflation and deflation using the IQR and Z-score statistics as well as periods of rapid change using outlier analysis applied to the monthly change in inflation and found them to correspond to different postwar periods, housing booms/crises and socioeconomically important periods. The underlying distribution of the monthly change in inflation was identified to be normal in nature, and highly leptokurtic, implying that periods of rapid change are more common than expected by a normal assumption. On analyzing the feature distributions, we found that the features underpinning growth rates of the initial features showed reasonable normal behavior with high kurtosis. This implies that periods of rapid change are more common than expected considering an underlying normal distribution, explaining the volatility in feature distributions. Using the correlation matrix, we identified \texttt{GROWPROD}, \texttt{GROWPAY}, \texttt{UNRATE}, \texttt{FEDFUNDS}, \texttt{T10Y2Y}, \texttt{GROWIND}, \texttt{HOUST} AND \texttt{UMCSENT} as candidate predictors that may serve as ideal features for building regression models based on their correlations with the current inflation rate. \texttt{GROWOIL}, \texttt{UNCHANGE}, \texttt{PAYEMS}, \texttt{CPIAUCSL} were identified as poor candidate predictors due to their uncorrelated behavior with the current inflation rate. We also identified \texttt{PPIACO}, \texttt{M2SL}, \texttt{INDPRO}, \texttt{PAYEMS}, \texttt{CPIAUCSL}, and \texttt{DCOILWTICO} as a set of features with extensive cross correlation that may imply redundancy if added to a regression model. The lead-lag analyses revealed that some of predictors selected by the correlation matrix method show reasonable correlations with the inflation rate across a range of timescales. Many other predictors such as \texttt{UNRATE}, \texttt{PPIACO}, \texttt{PAYEMS}, \texttt{M2SL}, \texttt{INDPRO}, etc., also showcase some long-term correlations, while lacking short term correlation. This may be a result of the extensive cross-correlation and noise effects. By plotting the different features against the inflation rate at different delays, we identify \texttt{T10Y2Y}, \texttt{UMCSENT}, \texttt{GROWPROD}, \texttt{FEDFUNDS}, \texttt{HOUST}, \texttt{UNRATE} and \texttt{GROWOIL} as some features that show linearity in the plots against inflation and may be ideal candidate predictors.
+}
+
+\subsection{Model Selection and Performance}
+
+\paragraph{Selected Models.}
+Degree 1 ElasticNet models were selected for all four horizons.
+
+\begin{table}[h]
+\centering
+\caption{Selected ElasticNet models and test-set performance.}
+\label{tab:results}
+\begin{tabular}{lccccc}
+\toprule
+Horizon & $\alpha$ & L1 ratio & MAE & RMSE & $R^2$ \\
+\midrule
+1 month   & 0.03 & 0.75 & 0.437 & 0.576 & $0.941$ \\
+3 months  & 0.10 & 0.50 & 1.140 & 1.599 & $0.539$ \\
+6 months  & 0.10 & 0.50 & 1.809 & 2.687 & $-0.317$ \\
+12 months & 0.10 & 0.75 & 2.184 & 3.117 & $-1.052$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Overfitting.}
+Degree 2 models show signs of overfitting, since they have 119 terms against 310 training
+observations (for example, the validation $R^2$ for 1-month OLS is $-14.7$).
+Ridge was never selected, as Lasso-type penalties that shrink weak features to
+zero worked better. This shows that some features may have been redundant.
+
+\paragraph{Performance across different time horizons.}
+Performance fell steadily as the horizon grew. The 1 month model is strong
+($R^2 = 0.94$) and the 3 month model is moderate ($R^2 = 0.54$). The negative
+$R^2$ at 6 and 12 months means that simply predicting the mean of test data would
+have performed better. 
+\paragraph{Feature Contributions.}
+For 1 month forecasts, current inflation dominates (correlation $0.95$, 
+Coefficient $1.02$). \var{FEDFUNDS} takes the lead at 3 and 6 months, and
+\var{UNRATE} has the largest contribution at 12 months. 
+
+
+\end{document}
